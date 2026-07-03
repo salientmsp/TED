@@ -134,6 +134,18 @@ Signing is optional and disabled until you provide a certificate, so the pipelin
 
 The signing step timestamps every binary, so signatures remain valid after the certificate expires.
 
+## Deploying the code-signing root CA
+
+For signed binaries to be trusted silently on managed endpoints, the Salient code-signing **root** certificate must be present in each machine's trust stores. [`deploy_rootca.ps1`](https://github.com/salientmsp/TED/blob/main/examples/deploy_rootca.ps1) imports the public root certificate into `LocalMachine\Root` (chain trust) and `LocalMachine\TrustedPublisher` (silent execution of signed binaries). It is idempotent — safe to run every RMM cycle — and refuses anything carrying a private key.
+
+Run it elevated / as SYSTEM, passing the certificate as a path or https URL. Under Gorelo, pass the file variable token so it is substituted at runtime:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy_rootca.ps1 -CertSource '$gorelo:file.SalientCodeSigningRootCACert'
+```
+
+Once the root CA is deployed and releases are signed, set `$ExpectedSignerThumbprint` in `rmm_deploy.ps1` to require that binaries are signed by your certificate.
+
 ## Verifying downloads
 
 The example deployment script supports supply-chain hardening. In [`rmm_deploy.ps1`](https://github.com/HealthITAU/TED/blob/main/examples/rmm_deploy.ps1) you can:
