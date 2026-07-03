@@ -7,8 +7,8 @@ param (
 )
 
 # Customize these values for your environment.
-$InstallDir = 'C:\ProgramData\TED'
-$GitHubRepo = 'HealthITAU/TED'
+$InstallDir = 'C:\ProgramData\SalientMSP\TED'
+$GitHubRepo = 'salientmsp/TED'
 $CompanyLogoFileName = 'company-logo.png'
 $CompanyLogoDownloadUrl = '' # Optional. Example: 'https://example.com/assets/company-logo.png'
 $UpdaterScriptDownloadUrl = '' # Optional. Host your customized copy here if you use -UpdateSelf.
