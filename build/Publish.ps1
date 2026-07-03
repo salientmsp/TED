@@ -3,15 +3,49 @@ param(
     [string]$OutputDirectory = "artifacts/publish",
     [ValidateSet("All", "FrameworkDependent", "SelfContained")]
     [string]$DeploymentMode = "All",
-    [switch]$EnableUnsafeTrim
+    [switch]$EnableUnsafeTrim,
+    [switch]$ChecksumsOnly
 )
 
 $ErrorActionPreference = "Stop"
+
+function Write-Checksums {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Directory
+    )
+
+    if (-not (Test-Path -LiteralPath $Directory)) {
+        Write-Host "Publish directory $Directory does not exist; nothing to checksum."
+        return
+    }
+
+    $exes = Get-ChildItem -LiteralPath $Directory -Filter "TED-*.exe" -File | Sort-Object Name
+    if (-not $exes) {
+        Write-Host "No TED executables found in $Directory to checksum."
+        return
+    }
+
+    $lines = $exes | ForEach-Object {
+        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()
+        "$hash  $($_.Name)"
+    }
+
+    $checksumPath = Join-Path $Directory "SHA256SUMS.txt"
+    $lines | Set-Content -LiteralPath $checksumPath -Encoding ascii
+    Write-Host "Wrote checksum manifest: $checksumPath"
+}
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $project = Join-Path $repoRoot "src/TED/TED.csproj"
 $artifactsRoot = Join-Path $repoRoot "artifacts"
 $publishRoot = Join-Path $repoRoot $OutputDirectory
+
+if ($ChecksumsOnly) {
+    Write-Checksums -Directory $publishRoot
+    return
+}
+
 $dotnetHome = Join-Path $artifactsRoot ".dotnet-home"
 $nugetPackages = Join-Path $dotnetHome ".nuget/packages"
 $appData = Join-Path $artifactsRoot ".appdata"
@@ -157,3 +191,5 @@ foreach ($mode in $deploymentModes) {
 }
 
 $publishedArtifacts | Sort-Object DeploymentMode, Runtime | Format-Table -AutoSize
+
+Write-Checksums -Directory $publishRoot

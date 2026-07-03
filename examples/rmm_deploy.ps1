@@ -16,10 +16,27 @@ $TaskName = 'Update TED'
 $UpdateScheduleDay = 'Tuesday'
 $UpdateScheduleTime = '8:00AM'
 
+# --- Supply-chain hardening -------------------------------------------------
+# Pin to a specific reviewed release tag (e.g. 'v2.0.1') instead of tracking
+# whatever is newest. Leave empty to follow the latest release.
+$PinnedReleaseTag = ''
+# Verify every downloaded binary against the SHA256SUMS.txt published on the
+# release before it is allowed to run. Strongly recommended; leave $true.
+$VerifyDownloads = $true
+# Optional: require downloaded binaries to be Authenticode-signed by a specific
+# certificate. Set to your code-signing certificate thumbprint (no spaces) to
+# reject anything not signed by you. Empty disables the signer check.
+$ExpectedSignerThumbprint = ''
+
 # Derived paths and release URLs.
 $LogoPath = Join-Path -Path $InstallDir -ChildPath $CompanyLogoFileName
 $LogFile = Join-Path -Path $InstallDir -ChildPath 'TED.log'
-$ReleaseDownloadBaseUrl = "https://github.com/$GitHubRepo/releases/latest/download"
+$ReleaseDownloadBaseUrl = if ([string]::IsNullOrWhiteSpace($PinnedReleaseTag)) {
+    "https://github.com/$GitHubRepo/releases/latest/download"
+}
+else {
+    "https://github.com/$GitHubRepo/releases/download/$PinnedReleaseTag"
+}
 $ReleaseLatestUrl = "https://github.com/$GitHubRepo/releases/latest"
 $TedPath = Join-Path -Path $InstallDir -ChildPath 'TED.exe'
 $ShortcutLocation = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\TED.lnk'
@@ -33,6 +50,71 @@ function Write-Log {
 
     $timestamp = Get-Date -Format 'yyyy/MM/dd HH:mm:ss'
     Add-Content -Path $LogFile -Value "$timestamp $Message"
+}
+
+function Confirm-Download {
+    param (
+        [Parameter(Mandatory)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory)]
+        [string]$FileName
+    )
+
+    if ($VerifyDownloads) {
+        $sumsUrl = "$ReleaseDownloadBaseUrl/SHA256SUMS.txt"
+        $expected = $null
+
+        try {
+            $sums = (Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing -ErrorAction Stop).Content
+            foreach ($line in ($sums -split "`n")) {
+                $parts = $line.Trim() -split '\s+', 2
+                if ($parts.Count -eq 2 -and $parts[1].Trim() -eq $FileName) {
+                    $expected = $parts[0].Trim().ToLower()
+                    break
+                }
+            }
+        }
+        catch {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "Unable to download checksum manifest from $sumsUrl; refusing to trust $FileName."
+            throw "Checksum manifest unavailable; aborting install of $FileName."
+        }
+
+        if ([string]::IsNullOrWhiteSpace($expected)) {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "No checksum entry for $FileName in $sumsUrl; refusing to trust the download."
+            throw "No published checksum for $FileName; aborting."
+        }
+
+        $actual = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
+        if ($actual -ne $expected) {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "Checksum mismatch for ${FileName}: expected $expected, got $actual. Deleted."
+            throw "Checksum verification failed for $FileName."
+        }
+
+        Write-Log "Verified SHA256 checksum for $FileName."
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSignerThumbprint)) {
+        $signature = Get-AuthenticodeSignature -FilePath $FilePath
+
+        if ($signature.Status -ne 'Valid') {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "Authenticode signature for $FileName is not valid (status: $($signature.Status)). Deleted."
+            throw "Signature validation failed for $FileName."
+        }
+
+        $thumbprint = $signature.SignerCertificate.Thumbprint
+        if ($thumbprint -ne $ExpectedSignerThumbprint) {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "Unexpected signer for ${FileName}: expected $ExpectedSignerThumbprint, got $thumbprint. Deleted."
+            throw "Unexpected Authenticode signer for $FileName."
+        }
+
+        Write-Log "Verified Authenticode signer for $FileName."
+    }
 }
 
 function Set-Shortcut {
@@ -76,6 +158,10 @@ function Get-WindowsArchitecture {
 }
 
 function Get-LatestTedVersion {
+    if (-not [string]::IsNullOrWhiteSpace($PinnedReleaseTag)) {
+        return ($PinnedReleaseTag -replace '[a-zA-Z]')
+    }
+
     $location = $null
 
     try {
@@ -181,6 +267,7 @@ function Install-Ted {
     }
 
     Invoke-WebRequest -Uri $downloadUrl -OutFile $TedPath
+    Confirm-Download -FilePath $TedPath -FileName (Split-Path -Path $downloadUrl -Leaf)
 
     $shortcutArguments = ''
 

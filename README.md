@@ -110,6 +110,38 @@ Tokens are stored in `TokenLookup` inside [`Tokenizer.cs`](https://github.com/He
 
 Add your token as the dictionary key and the substituted value provider as the value, then compile and use your new token in a `-line` value.
 
+## Building from source
+
+If you would rather not trust the prebuilt binaries, TED builds from source with only the .NET 8 SDK. The build script produces all three architectures in both framework-dependent and self-contained flavours, and writes a `SHA256SUMS.txt` manifest alongside them:
+
+```powershell
+pwsh build/Publish.ps1
+```
+
+Artifacts (and `SHA256SUMS.txt`) are written to `artifacts/publish`. WinForms apps cross-publish to the `win-*` runtimes from Linux or macOS as well, so this also runs on non-Windows CI.
+
+### Automated release pipeline
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds every architecture, optionally signs the binaries, generates `SHA256SUMS.txt`, and attaches everything to a GitHub release. Standard `windows-latest` runners are free and unlimited on public repositories.
+
+### Code signing
+
+Signing is optional and disabled until you provide a certificate, so the pipeline works before you have one. To sign with your own internal certificate:
+
+1. Generate a code-signing certificate on a trusted Windows machine (`New-SelfSignedCertificate -Type CodeSigningCert ...`) and export it to a password-protected `.pfx`.
+2. Base64-encode the `.pfx` and add it as the `CODESIGN_PFX_B64` repository secret, and the export password as `CODESIGN_PW`.
+3. Deploy the certificate (or its issuing root) to your managed endpoints' **Trusted Publishers** store via GPO or your RMM so the signatures are trusted silently.
+
+The signing step timestamps every binary, so signatures remain valid after the certificate expires.
+
+## Verifying downloads
+
+The example deployment script supports supply-chain hardening. In [`rmm_deploy.ps1`](https://github.com/HealthITAU/TED/blob/main/examples/rmm_deploy.ps1) you can:
+
+- Set `$PinnedReleaseTag` to a reviewed release (e.g. `v2.0.1`) instead of always tracking the latest.
+- Keep `$VerifyDownloads = $true` to check every downloaded binary against the release's `SHA256SUMS.txt` before it runs; a mismatch or missing manifest aborts the install.
+- Set `$ExpectedSignerThumbprint` to require binaries be Authenticode-signed by your own certificate.
+
 ## Contributing
 
 Contributions to TED are welcome! If you find any issues or have suggestions for improvement, please feel free to open an issue or submit a pull request.

@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish all runtimes
+        shell: pwsh
+        run: ./build/Publish.ps1
+
+      # Signing is optional: this step is skipped until the CODESIGN_PFX_B64
+      # secret is set, so the workflow builds and releases fine before you have
+      # provisioned a code-signing certificate. See README for how to generate
+      # an internal code-signing cert and populate the secrets.
+      - name: Sign binaries
+        if: ${{ secrets.CODESIGN_PFX_B64 != '' }}
+        shell: pwsh
+        env:
+          CODESIGN_PFX_B64: ${{ secrets.CODESIGN_PFX_B64 }}
+          CODESIGN_PW: ${{ secrets.CODESIGN_PW }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CODESIGN_PFX_B64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          if (-not $signtool) { throw 'signtool.exe was not found on the runner.' }
+          Get-ChildItem 'artifacts/publish/TED-*.exe' | ForEach-Object {
+            & $signtool.FullName sign /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 `
+              /f $pfxPath /p $env:CODESIGN_PW $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $($_.Name)." }
+          }
+          Remove-Item $pfxPath -Force
+          # Regenerate the checksum manifest so it covers the signed bytes.
+          ./build/Publish.ps1 -ChecksumsOnly
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/publish/TED-*.exe
+            artifacts/publish/SHA256SUMS.txt
