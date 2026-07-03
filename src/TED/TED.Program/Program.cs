@@ -80,7 +80,7 @@ namespace TED.Program
                 paddingHorizontal = Options.Default.PaddingHorizontal;
             }
 
-            if (!int.TryParse(GetArgument(args, new string[] { "-vpad", "-vp" }, Options.Default.PaddingHorizontal.ToString()), out int paddingVertical))
+            if (!int.TryParse(GetArgument(args, new string[] { "-vpad", "-vp" }, Options.Default.PaddingVertical.ToString()), out int paddingVertical))
             {
                 paddingVertical = Options.Default.PaddingVertical;
             }
