@@ -7,7 +7,7 @@ param (
 )
 
 # Customize these values for your environment.
-$InstallDir = 'C:\ProgramData\TED'
+$InstallDir = 'C:\ProgramData\SalientMSP\TED'
 $GitHubRepo = 'salientmsp/TED'
 $CompanyLogoFileName = 'company-logo.png'
 $CompanyLogoDownloadUrl = '' # Optional. Example: 'https://example.com/assets/company-logo.png'
