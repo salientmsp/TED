@@ -40,6 +40,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Some RMMs (e.g. Gorelo) backtick-escape spaces when injecting the path into the
+# invocation; strip stray backticks (never part of these cert paths) so the path
+# resolves correctly.
+$CertSource = ($CertSource -replace '`', '').Trim()
+
 function Resolve-CertFile {
     param([Parameter(Mandatory)][string]$Source)
 

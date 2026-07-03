@@ -15,6 +15,11 @@
 # Gorelo replaces this token with the attached file's local path before running.
 $CertSource = '$gorelo:file.SalientCodeSigningRootCACert'
 
+# Gorelo backtick-escapes spaces (and similar) when substituting the path; those
+# escapes are literal inside the single-quoted value above, so strip stray
+# backticks (never part of these cert paths) and trim whitespace before using it.
+$CertSource = ($CertSource -replace '`', '').Trim()
+
 # Root = chain trust; TrustedPublisher = silent signed-exe execution (AppLocker/SmartScreen).
 $StoreNames = @('Root', 'TrustedPublisher')
 
