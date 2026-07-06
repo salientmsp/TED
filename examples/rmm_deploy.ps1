@@ -145,9 +145,33 @@ function Confirm-Download {
     if (-not [string]::IsNullOrWhiteSpace($ExpectedSignerThumbprint)) {
         $signature = Get-AuthenticodeSignature -FilePath $FilePath
 
-        if ($signature.Status -ne 'Valid') {
+        if ($null -eq $signature.SignerCertificate) {
             Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
-            Write-Log "Authenticode signature for $FileName is not valid (status: $($signature.Status)). Deleted."
+            Write-Log "$FileName is not Authenticode-signed. Deleted."
+            throw "Signature validation failed for $FileName."
+        }
+
+        if ($signature.Status -eq 'HashMismatch') {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "Authenticode hash mismatch for $FileName. Deleted."
+            throw "Signature validation failed for $FileName."
+        }
+
+        # Accept a Valid signature outright. An internal self-signed code-signing
+        # certificate has no CRL/OCSP endpoint, so Get-AuthenticodeSignature
+        # returns UnknownError purely because revocation cannot be checked; in
+        # that case confirm trust by rebuilding the chain with revocation checking
+        # disabled. (The SHA256 check above already guarantees file integrity.)
+        $trusted = ($signature.Status -eq 'Valid')
+        if (-not $trusted) {
+            $chain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
+            $chain.ChainPolicy.RevocationMode = 'NoCheck'
+            $trusted = $chain.Build($signature.SignerCertificate)
+        }
+
+        if (-not $trusted) {
+            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
+            Write-Log "Authenticode signature for $FileName is not trusted (status: $($signature.Status)). Deleted."
             throw "Signature validation failed for $FileName."
         }
 
