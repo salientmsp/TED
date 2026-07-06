@@ -98,13 +98,14 @@ function Confirm-Download {
         $expected = $null
 
         try {
-            $sums = (Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing -ErrorAction Stop).Content
-            foreach ($line in ($sums -split "`n")) {
-                $parts = $line.Trim() -split '\s+', 2
-                if ($parts.Count -eq 2 -and $parts[1].Trim() -eq $FileName) {
-                    $expected = $parts[0].Trim().ToLower()
-                    break
-                }
+            $response = Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing -ErrorAction Stop
+            # PowerShell 7 / some CDNs hand back the manifest as raw bytes
+            # (octet-stream) rather than a string; decode to text so it parses.
+            $sums = if ($response.Content -is [byte[]]) {
+                [System.Text.Encoding]::UTF8.GetString($response.Content)
+            }
+            else {
+                [string]$response.Content
             }
         }
         catch {
@@ -113,9 +114,21 @@ function Confirm-Download {
             throw "Checksum manifest unavailable; aborting install of $FileName."
         }
 
+        $manifestNames = @()
+        foreach ($line in ($sums -split '\r?\n')) {
+            $parts = $line.Trim() -split '\s+', 2
+            if ($parts.Count -eq 2) {
+                $manifestNames += $parts[1].Trim()
+                if ($parts[1].Trim() -eq $FileName) {
+                    $expected = $parts[0].Trim().ToLower()
+                    break
+                }
+            }
+        }
+
         if ([string]::IsNullOrWhiteSpace($expected)) {
             Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
-            Write-Log "No checksum entry for $FileName in $sumsUrl; refusing to trust the download."
+            Write-Log "No checksum entry for $FileName in $sumsUrl (manifest lists: $($manifestNames -join ', ')); refusing to trust the download."
             throw "No published checksum for $FileName; aborting."
         }
 
@@ -196,22 +209,30 @@ function Get-LatestTedVersion {
 
     $location = $null
 
+    # Follow the redirect from /releases/latest to /releases/tag/<tag> and read
+    # the resolved URL. Works in both Windows PowerShell 5.1 and PowerShell 7,
+    # unlike scraping the raw Location header (which differs between them).
+    $resolved = $null
     try {
-        $response = Invoke-WebRequest -Uri $ReleaseLatestUrl -MaximumRedirection 0 -UseBasicParsing -ErrorAction Stop
-        $location = $response.Headers.Location
-    }
-    catch {
-        if ($_.Exception.Response -and $_.Exception.Response.Headers) {
-            $location = $_.Exception.Response.Headers['Location']
+        $response = Invoke-WebRequest -Uri $ReleaseLatestUrl -UseBasicParsing -Method Head -ErrorAction Stop
+        $baseResponse = $response.BaseResponse
+        if ($baseResponse.ResponseUri) {
+            $resolved = $baseResponse.ResponseUri.AbsoluteUri
+        }
+        elseif ($baseResponse.RequestMessage -and $baseResponse.RequestMessage.RequestUri) {
+            $resolved = $baseResponse.RequestMessage.RequestUri.AbsoluteUri
         }
     }
-
-    if ([string]::IsNullOrWhiteSpace($location)) {
-        Write-Log "Unable to determine the latest TED release version from $ReleaseLatestUrl."
-        return $null
+    catch {
+        $resolved = $null
     }
 
-    return (Split-Path -Path $location -Leaf) -replace '[a-zA-Z]'
+    if ($resolved -and $resolved -match '/tag/([^/?#]+)') {
+        return ($Matches[1] -replace '[a-zA-Z]')
+    }
+
+    Write-Log "Unable to determine the latest TED release version from $ReleaseLatestUrl."
+    return $null
 }
 
 function ConvertTo-ComparableVersion {
