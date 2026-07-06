@@ -32,8 +32,14 @@ $DeploymentType = 'self-contained'  # 'self-contained' or 'framework-dependent'.
 # Customize these values for your environment.
 $InstallDir = 'C:\ProgramData\SalientMSP\TED'
 $GitHubRepo = 'salientmsp/TED'
-$CompanyLogoFileName = 'company-logo.png'
-$CompanyLogoDownloadUrl = '' # Optional. Example: 'https://example.com/assets/company-logo.png'
+# Company logo shown on the desktop, switched by wallpaper luminance. TED draws
+# the "dark" image (-di) on LIGHT wallpapers and the "light" image (-li) on DARK
+# wallpapers, so name matches artwork:
+#   Dark  = dark/navy artwork  (LogoDark)  -> drawn via -di on light wallpapers
+#   Light = light/white artwork (LogoLight) -> drawn via -li on dark wallpapers
+# Set both for full coverage; leave a URL empty to skip that variant.
+$CompanyLogoDarkUrl = 'https://files.salientmsp.com/assets/branding/LogoDark.png'
+$CompanyLogoLightUrl = 'https://files.salientmsp.com/assets/branding/LogoLight.png'
 $UpdaterScriptDownloadUrl = '' # Optional. Host your customized copy here if you enable $UpdateSelf.
 # Only used when $UpdateSelf is $true (the self-registered Windows update task).
 # Ignored for RMM-driven updates.
@@ -54,7 +60,8 @@ $VerifyDownloads = $true
 $ExpectedSignerThumbprint = 'B81C805C7A627DCEBCA09D9A90FDA0F82C166953'
 
 # Derived paths and release URLs.
-$LogoPath = Join-Path -Path $InstallDir -ChildPath $CompanyLogoFileName
+$LogoDarkPath = Join-Path -Path $InstallDir -ChildPath 'company-logo-dark.png'
+$LogoLightPath = Join-Path -Path $InstallDir -ChildPath 'company-logo-light.png'
 $LogFile = Join-Path -Path $InstallDir -ChildPath 'TED.log'
 $ReleaseDownloadBaseUrl = if ([string]::IsNullOrWhiteSpace($PinnedReleaseTag)) {
     "https://github.com/$GitHubRepo/releases/latest/download"
@@ -230,34 +237,44 @@ function ConvertTo-ComparableVersion {
     }
 }
 
-function Update-CompanyLogo {
-    if ([string]::IsNullOrWhiteSpace($CompanyLogoDownloadUrl)) {
+function Update-LogoFile {
+    param(
+        [string]$Url,
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Url)) {
         return
     }
 
-    if (-not (Test-Path -Path $LogoPath)) {
-        Write-Log "Downloading company logo from $CompanyLogoDownloadUrl."
-        Invoke-WebRequest -Uri $CompanyLogoDownloadUrl -OutFile $LogoPath
+    if (-not (Test-Path -Path $Path)) {
+        Write-Log "Downloading company logo from $Url."
+        Invoke-WebRequest -Uri $Url -OutFile $Path
         return
     }
 
     $webClient = [System.Net.WebClient]::new()
 
     try {
-        $remoteLogoHash = Get-FileHash -Algorithm MD5 -InputStream ($webClient.OpenRead($CompanyLogoDownloadUrl))
-        $localLogoHash = Get-FileHash -Algorithm MD5 -Path $LogoPath
+        $remoteHash = Get-FileHash -Algorithm MD5 -InputStream ($webClient.OpenRead($Url))
+        $localHash = Get-FileHash -Algorithm MD5 -Path $Path
     }
     finally {
         $webClient.Dispose()
     }
 
-    if ($remoteLogoHash.Hash -eq $localLogoHash.Hash) {
+    if ($remoteHash.Hash -eq $localHash.Hash) {
         return
     }
 
-    Write-Log "Company logo at $CompanyLogoDownloadUrl has changed; replacing the local copy."
-    Remove-Item -Path $LogoPath -Force
-    Invoke-WebRequest -Uri $CompanyLogoDownloadUrl -OutFile $LogoPath
+    Write-Log "Company logo at $Url has changed; replacing the local copy."
+    Remove-Item -Path $Path -Force
+    Invoke-WebRequest -Uri $Url -OutFile $Path
+}
+
+function Update-CompanyLogo {
+    Update-LogoFile -Url $CompanyLogoDarkUrl -Path $LogoDarkPath
+    Update-LogoFile -Url $CompanyLogoLightUrl -Path $LogoLightPath
 }
 
 function Register-TedUpdateTask {
@@ -317,11 +334,15 @@ function Install-Ted {
     Invoke-WebRequest -Uri $downloadUrl -OutFile $TedPath
     Confirm-Download -FilePath $TedPath -FileName (Split-Path -Path $downloadUrl -Leaf)
 
-    $shortcutArguments = ''
-
-    if ((-not [string]::IsNullOrWhiteSpace($CompanyLogoDownloadUrl)) -or (Test-Path -Path $LogoPath)) {
-        $shortcutArguments = "-i `"$LogoPath`""
+    # -di is drawn on LIGHT wallpapers (dark artwork), -li on DARK wallpapers.
+    $logoArguments = @()
+    if (Test-Path -Path $LogoDarkPath) {
+        $logoArguments += "-di `"$LogoDarkPath`""
     }
+    if (Test-Path -Path $LogoLightPath) {
+        $logoArguments += "-li `"$LogoLightPath`""
+    }
+    $shortcutArguments = $logoArguments -join ' '
 
     Write-Log "Creating startup shortcut for TED."
     Set-Shortcut -SourceExe $TedPath -Arguments $shortcutArguments -DestinationPath $ShortcutLocation
