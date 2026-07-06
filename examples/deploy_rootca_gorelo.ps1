@@ -27,6 +27,11 @@ $StoreNames = @('Root', 'TrustedPublisher')
 # old root with the wrong EKU). Matched by exact thumbprint; spaces are ignored.
 $RemoveThumbprints = @()
 
+# Optional safety gate: the SHA1 thumbprint the file variable's certificate must
+# match before anything is trusted. Guards against a wrong/swapped file variable
+# being deployed fleet-wide. Empty skips the check.
+$ExpectedRootThumbprint = ''
+
 $ErrorActionPreference = 'Stop'
 
 # Resolve the source to a local file (accepts a staged path or an https URL).
@@ -49,6 +54,15 @@ try {
     # Never push a private key into a machine trust store.
     if ($cert.HasPrivateKey) {
         throw 'The supplied certificate contains a private key. Deploy only the PUBLIC root certificate.'
+    }
+
+    # Verify the certificate is the one we expect before trusting it fleet-wide.
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedRootThumbprint)) {
+        $expected = ($ExpectedRootThumbprint -replace '[^0-9A-Fa-f]', '')
+        if ($cert.Thumbprint -ne $expected) {
+            throw "Certificate thumbprint $($cert.Thumbprint) does not match expected $expected. Refusing to deploy."
+        }
+        Write-Host "Verified certificate thumbprint $($cert.Thumbprint)."
     }
 
     Write-Host "Root CA subject : $($cert.Subject)"

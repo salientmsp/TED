@@ -40,7 +40,12 @@ param(
     # Thumbprints of superseded certificates to remove from the stores first
     # (e.g. an old root with the wrong EKU). Matched exactly, case-insensitive;
     # spaces are ignored so a thumbprint copied from the certificate GUI works.
-    [string[]]$RemoveThumbprints = @()
+    [string[]]$RemoveThumbprints = @(),
+
+    # Optional safety gate: the SHA1 thumbprint the resolved certificate must
+    # match before anything is trusted. Guards against a wrong or swapped file
+    # variable being deployed fleet-wide. Empty skips the check.
+    [string]$ExpectedRootThumbprint = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,6 +79,15 @@ try {
     # Never push a private key into a machine trust store.
     if ($cert.HasPrivateKey) {
         throw 'The supplied certificate contains a private key. Deploy only the PUBLIC root certificate.'
+    }
+
+    # Verify the certificate is the one we expect before trusting it fleet-wide.
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedRootThumbprint)) {
+        $expected = ($ExpectedRootThumbprint -replace '[^0-9A-Fa-f]', '')
+        if ($cert.Thumbprint -ne $expected) {
+            throw "Certificate thumbprint $($cert.Thumbprint) does not match expected $expected. Refusing to deploy."
+        }
+        Write-Host "Verified certificate thumbprint $($cert.Thumbprint)."
     }
 
     Write-Host "Root CA subject : $($cert.Subject)"
