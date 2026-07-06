@@ -4,7 +4,8 @@ param(
     [ValidateSet("All", "FrameworkDependent", "SelfContained")]
     [string]$DeploymentMode = "All",
     [switch]$EnableUnsafeTrim,
-    [switch]$ChecksumsOnly
+    [switch]$ChecksumsOnly,
+    [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -163,6 +164,10 @@ foreach ($mode in $deploymentModes) {
             "-p:DebugSymbols=false",
             "--output", $runtimeOutput
         )
+
+        if (-not [string]::IsNullOrWhiteSpace($Version)) {
+            $publishArgs += "-p:Version=$Version"
+        }
 
         dotnet @publishArgs
 
