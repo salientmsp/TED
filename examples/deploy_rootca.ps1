@@ -35,7 +35,17 @@ param(
     # Trust stores to import into. Root is required for chain trust;
     # TrustedPublisher enables silent execution of signed binaries.
     [ValidateNotNullOrEmpty()]
-    [string[]]$StoreNames = @('Root', 'TrustedPublisher')
+    [string[]]$StoreNames = @('Root', 'TrustedPublisher'),
+
+    # Thumbprints of superseded certificates to remove from the stores first
+    # (e.g. an old root with the wrong EKU). Matched exactly, case-insensitive;
+    # spaces are ignored so a thumbprint copied from the certificate GUI works.
+    [string[]]$RemoveThumbprints = @(),
+
+    # Optional safety gate: the SHA1 thumbprint the resolved certificate must
+    # match before anything is trusted. Guards against a wrong or swapped file
+    # variable being deployed fleet-wide. Empty skips the check.
+    [string]$ExpectedRootThumbprint = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +81,15 @@ try {
         throw 'The supplied certificate contains a private key. Deploy only the PUBLIC root certificate.'
     }
 
+    # Verify the certificate is the one we expect before trusting it fleet-wide.
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedRootThumbprint)) {
+        $expected = ($ExpectedRootThumbprint -replace '[^0-9A-Fa-f]', '')
+        if ($cert.Thumbprint -ne $expected) {
+            throw "Certificate thumbprint $($cert.Thumbprint) does not match expected $expected. Refusing to deploy."
+        }
+        Write-Host "Verified certificate thumbprint $($cert.Thumbprint)."
+    }
+
     Write-Host "Root CA subject : $($cert.Subject)"
     Write-Host "Thumbprint      : $($cert.Thumbprint)"
     Write-Host "Valid until     : $($cert.NotAfter)"
@@ -81,6 +100,19 @@ try {
             [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
         $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         try {
+            # Remove explicitly superseded certificates (e.g. an old root with the
+            # wrong EKU), matched by exact thumbprint so nothing else is touched.
+            foreach ($bad in $RemoveThumbprints) {
+                $badClean = ($bad -replace '[^0-9A-Fa-f]', '')
+                if ([string]::IsNullOrWhiteSpace($badClean)) { continue }
+                foreach ($found in $store.Certificates.Find(
+                        [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                        $badClean, $false)) {
+                    $store.Remove($found)
+                    Write-Host "[$storeName] removed superseded $($found.Thumbprint)."
+                }
+            }
+
             $match = $store.Certificates.Find(
                 [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
                 $cert.Thumbprint,

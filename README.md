@@ -146,6 +146,10 @@ powershell -ExecutionPolicy Bypass -File deploy_rootca.ps1 -CertSource '$gorelo:
 
 For RMMs that only run a pasted script body (no arguments), use [`deploy_rootca_gorelo.ps1`](https://github.com/salientmsp/TED/blob/main/examples/deploy_rootca_gorelo.ps1) instead — it is parameter-free, with the file variable token set inline at the top, so you can paste it straight into a Gorelo PowerShell task (run as SYSTEM).
 
+To replace a superseded root (for example, one issued with the wrong EKU), list its thumbprint in `$RemoveThumbprints` (or the `-RemoveThumbprints` parameter). The script removes those exact thumbprints from the stores before importing the current root, so re-running the task cleans up every endpoint that received the old certificate.
+
+Set `$ExpectedRootThumbprint` (or `-ExpectedRootThumbprint`) to the thumbprint the deployed certificate must match. The script verifies the resolved certificate against it and refuses to trust anything else, guarding against a wrong or swapped source being pushed fleet-wide.
+
 Once the root CA is deployed and releases are signed, set `$ExpectedSignerThumbprint` in `rmm_deploy.ps1` to require that binaries are signed by your certificate.
 
 ## Verifying downloads
