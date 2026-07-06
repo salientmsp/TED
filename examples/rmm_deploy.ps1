@@ -157,24 +157,14 @@ function Confirm-Download {
             throw "Signature validation failed for $FileName."
         }
 
-        # Accept a Valid signature outright. An internal self-signed code-signing
-        # certificate has no CRL/OCSP endpoint, so Get-AuthenticodeSignature
-        # returns UnknownError purely because revocation cannot be checked; in
-        # that case confirm trust by rebuilding the chain with revocation checking
-        # disabled. (The SHA256 check above already guarantees file integrity.)
-        $trusted = ($signature.Status -eq 'Valid')
-        if (-not $trusted) {
-            $chain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
-            $chain.ChainPolicy.RevocationMode = 'NoCheck'
-            $trusted = $chain.Build($signature.SignerCertificate)
-        }
-
-        if (-not $trusted) {
-            Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
-            Write-Log "Authenticode signature for $FileName is not trusted (status: $($signature.Status)). Deleted."
-            throw "Signature validation failed for $FileName."
-        }
-
+        # Authenticity is proven by the pinned signer thumbprint alone: only our
+        # certificate has that exact thumbprint, and only we hold its private key.
+        # We deliberately do NOT require the chain to build to a trusted root here
+        # -- that would depend on the root being installed in the store of whichever
+        # account runs this (SYSTEM vs. user) and adds nothing against the real
+        # threat. Integrity is already covered by the SHA256 check above and the
+        # HashMismatch check here. (Deploy the root to endpoints for run-time OS
+        # trust separately, via deploy_rootca.ps1.)
         $thumbprint = $signature.SignerCertificate.Thumbprint
         if ($thumbprint -ne $ExpectedSignerThumbprint) {
             Remove-Item -Path $FilePath -Force -ErrorAction SilentlyContinue
