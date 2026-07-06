@@ -51,7 +51,7 @@ $VerifyDownloads = $true
 # Optional: require downloaded binaries to be Authenticode-signed by a specific
 # certificate. Set to your code-signing certificate thumbprint (no spaces) to
 # reject anything not signed by you. Empty disables the signer check.
-$ExpectedSignerThumbprint = '51346A93CB54551139C0D0152FE7065AC0B7FE26'
+$ExpectedSignerThumbprint = 'B81C805C7A627DCEBCA09D9A90FDA0F82C166953'
 
 # Derived paths and release URLs.
 $LogoPath = Join-Path -Path $InstallDir -ChildPath $CompanyLogoFileName
