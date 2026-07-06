@@ -126,13 +126,62 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds every arch
 
 ### Code signing
 
-Signing is optional and disabled until you provide a certificate, so the pipeline works before you have one. To sign with your own internal certificate:
+Signing is optional and disabled until you provide a certificate, so the pipeline works before you have one. TED uses a two-tier internal PKI: an offline **root CA** deployed to your endpoints' trust stores, and a **leaf** certificate that CI signs with.
 
-1. Generate a code-signing certificate on a trusted Windows machine (`New-SelfSignedCertificate -Type CodeSigningCert ...`) and export it to a password-protected `.pfx`.
-2. Base64-encode the `.pfx` and add it as the `CODESIGN_PFX_B64` repository secret, and the export password as `CODESIGN_PW`.
-3. Deploy the certificate (or its issuing root) to your managed endpoints' **Trusted Publishers** store via GPO or your RMM so the signatures are trusted silently.
+> **Important — the Code Signing EKU.** The whole certificate chain must carry the Code Signing EKU (`1.3.6.1.5.5.7.3.3`). `New-SelfSignedCertificate` **defaults to Client/Server Authentication** when no EKU is given, which silently breaks signing (Windows reports *"The certificate is not valid for the requested usage"*, and `Get-AuthenticodeSignature` never returns `Valid`). Windows intersects EKUs down the chain, so **both the root and the leaf** must set Code Signing explicitly — as below.
 
-The signing step timestamps every binary, so signatures remain valid after the certificate expires.
+**1. Create the root CA** (once; keep its private key offline). On a trusted Windows machine:
+
+```powershell
+$ca = New-SelfSignedCertificate `
+  -Type Custom `
+  -Subject 'CN=SalientMSP Code Signing Root CA' `
+  -KeyUsage CertSign, CRLSign `
+  -KeyAlgorithm RSA -KeyLength 4096 -HashAlgorithm SHA256 `
+  -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(10) `
+  -CertStoreLocation Cert:\CurrentUser\My `
+  -TextExtension @('2.5.29.19={critical}{text}CA=true', '2.5.29.37={text}1.3.6.1.5.5.7.3.3')
+```
+
+**2. Issue the leaf** from that root:
+
+```powershell
+$code = New-SelfSignedCertificate `
+  -Type Custom `
+  -Subject 'CN=SalientMSP Code Signing' `
+  -KeyUsage DigitalSignature `
+  -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 `
+  -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(3) `
+  -CertStoreLocation Cert:\CurrentUser\My -Signer $ca `
+  -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3')
+```
+
+**3. Export.** `New-SelfSignedCertificate` stores the keys in your Windows profile (no password prompt); a password only exists once you export a `.pfx`, and **you choose it at export time** — that value becomes `CODESIGN_PW`.
+
+```powershell
+$pw = Read-Host -AsSecureString 'PFX export password'
+Export-Certificate    -Cert $ca   -FilePath .\RootCA.cer                    # public root -> deploy to the fleet
+Export-PfxCertificate -Cert $ca   -FilePath .\RootCA.pfx   -Password $pw    # root key -> keep OFFLINE, secure
+Export-PfxCertificate -Cert $code -FilePath .\CodeSign.pfx -Password $pw    # leaf key -> used by CI
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('.\CodeSign.pfx')) | Set-Clipboard
+```
+
+**4. Wire it up:**
+
+- Add the base64 leaf pfx as the `CODESIGN_PFX_B64` repository secret and the password as `CODESIGN_PW`. Never commit a `.pfx`; keep the **root** `.pfx` offline (only the leaf goes into CI).
+- Deploy the public root (`RootCA.cer`) to endpoints — see [Deploying the code-signing root CA](#deploying-the-code-signing-root-ca).
+- Set `$ExpectedSignerThumbprint` in `rmm_deploy.ps1` to the leaf thumbprint (`$code.Thumbprint`).
+
+**Verify the chain** before rolling out — Code Signing EKU present, no `NotValidForUsage`:
+
+```powershell
+$c = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
+$c.ChainPolicy.RevocationMode = 'NoCheck'
+[void]$c.ChainPolicy.ApplicationPolicy.Add('1.3.6.1.5.5.7.3.3')
+$c.Build($code)   # True once the root is trusted locally (RevocationStatusUnknown alone is fine for self-signed)
+```
+
+The signing step timestamps every binary, so signatures remain valid after the certificate expires. When you rotate the certificate, update `CODESIGN_PFX_B64`/`CODESIGN_PW`, the deployed root, and `$ExpectedSignerThumbprint` together.
 
 ## Deploying the code-signing root CA
 
@@ -154,7 +203,7 @@ Once the root CA is deployed and releases are signed, set `$ExpectedSignerThumbp
 
 ## Verifying downloads
 
-The example deployment script supports supply-chain hardening. In [`rmm_deploy.ps1`](https://github.com/HealthITAU/TED/blob/main/examples/rmm_deploy.ps1) you can:
+The example deployment script supports supply-chain hardening. In [`rmm_deploy.ps1`](https://github.com/salientmsp/TED/blob/main/examples/rmm_deploy.ps1) you can:
 
 - Set `$PinnedReleaseTag` to a reviewed release (e.g. `v2.0.1`) instead of always tracking the latest.
 - Keep `$VerifyDownloads = $true` to check every downloaded binary against the release's `SHA256SUMS.txt` before it runs; a mismatch or missing manifest aborts the install.
