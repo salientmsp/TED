@@ -35,7 +35,12 @@ param(
     # Trust stores to import into. Root is required for chain trust;
     # TrustedPublisher enables silent execution of signed binaries.
     [ValidateNotNullOrEmpty()]
-    [string[]]$StoreNames = @('Root', 'TrustedPublisher')
+    [string[]]$StoreNames = @('Root', 'TrustedPublisher'),
+
+    # Thumbprints of superseded certificates to remove from the stores first
+    # (e.g. an old root with the wrong EKU). Matched exactly, case-insensitive;
+    # spaces are ignored so a thumbprint copied from the certificate GUI works.
+    [string[]]$RemoveThumbprints = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,6 +86,19 @@ try {
             [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
         $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         try {
+            # Remove explicitly superseded certificates (e.g. an old root with the
+            # wrong EKU), matched by exact thumbprint so nothing else is touched.
+            foreach ($bad in $RemoveThumbprints) {
+                $badClean = ($bad -replace '[^0-9A-Fa-f]', '')
+                if ([string]::IsNullOrWhiteSpace($badClean)) { continue }
+                foreach ($found in $store.Certificates.Find(
+                        [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                        $badClean, $false)) {
+                    $store.Remove($found)
+                    Write-Host "[$storeName] removed superseded $($found.Thumbprint)."
+                }
+            }
+
             $match = $store.Certificates.Find(
                 [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
                 $cert.Thumbprint,
