@@ -40,22 +40,62 @@ namespace TED.DrawModes
                 }
 
                 var lineHeights = formattedLines.Select(line => MeasureFormattedLine(graphics, line, font).Height).ToList();
-                var textX = scaledWorkingAreaWidth + primaryWorkingArea.Width - maxWidth - options.PaddingHorizontal;
-                var textY = scaledWorkingAreaHeight + primaryWorkingArea.Height - lineHeights.Sum() - (options.LineSpacing * (options.Lines.Count - 1)) - options.PaddingVertical;
 
-                if (!string.IsNullOrEmpty(imagePath))
+                var rightEdge = scaledWorkingAreaWidth + primaryWorkingArea.Width;
+                var bottomEdge = scaledWorkingAreaHeight + primaryWorkingArea.Height;
+
+                float textX;
+                float textY;
+
+                if (options.BackdropImage && !string.IsNullOrEmpty(imagePath))
                 {
+                    // Backdrop mode (-backdrop): the image and text share a single layout cell so
+                    // the logo is rendered behind the text as a watermark instead of being stacked
+                    // above it. The cell is as wide as the resolved width (-w) and as tall as
+                    // whichever element is taller, and it is anchored to the bottom-right corner via
+                    // the padding args (-hp/-vp) so the logo and text move together as one block.
+                    var textBlockHeight = lineHeights.Sum() + (options.LineSpacing * Math.Max(options.Lines.Count - 1, 0));
+
                     using (var overlayImage = Image.FromFile(imagePath))
                     {
                         ImageUtilities.ScaleImageAndMaintainAspectRatio(overlayImage.Width, overlayImage.Height, maxWidth, int.MaxValue, out int newWidth, out int newHeight);
 
-                        var imageX = scaledWorkingAreaWidth + primaryWorkingArea.Width - newWidth - options.PaddingHorizontal;
-                        var imageY = scaledWorkingAreaHeight + primaryWorkingArea.Height - newHeight - lineHeights.Sum() - (options.LineSpacing * options.Lines.Count) - options.PaddingVertical;
+                        var groupWidth = maxWidth;
+                        var groupHeight = Math.Max(newHeight, textBlockHeight);
+                        var groupLeft = rightEdge - groupWidth - options.PaddingHorizontal;
+                        var groupTop = bottomEdge - groupHeight - options.PaddingVertical;
 
-                        textX = imageX;
-                        textY = imageY + newHeight + options.LineSpacing;
+                        // Bottom layer: center the logo within the group so it backs the text.
+                        var imageX = groupLeft + (groupWidth - newWidth) / 2f;
+                        var imageY = groupTop + (groupHeight - newHeight) / 2f;
 
                         graphics.DrawImage(overlayImage, new RectangleF(imageX, imageY, newWidth, newHeight));
+
+                        // Top layer: the text shares the group's origin and is drawn last (below).
+                        textX = groupLeft;
+                        textY = groupTop;
+                    }
+                }
+                else
+                {
+                    // Default mode: the image (when present) is stacked directly above the text.
+                    textX = rightEdge - maxWidth - options.PaddingHorizontal;
+                    textY = bottomEdge - lineHeights.Sum() - (options.LineSpacing * (options.Lines.Count - 1)) - options.PaddingVertical;
+
+                    if (!string.IsNullOrEmpty(imagePath))
+                    {
+                        using (var overlayImage = Image.FromFile(imagePath))
+                        {
+                            ImageUtilities.ScaleImageAndMaintainAspectRatio(overlayImage.Width, overlayImage.Height, maxWidth, int.MaxValue, out int newWidth, out int newHeight);
+
+                            var imageX = rightEdge - newWidth - options.PaddingHorizontal;
+                            var imageY = bottomEdge - newHeight - lineHeights.Sum() - (options.LineSpacing * options.Lines.Count) - options.PaddingVertical;
+
+                            textX = imageX;
+                            textY = imageY + newHeight + options.LineSpacing;
+
+                            graphics.DrawImage(overlayImage, new RectangleF(imageX, imageY, newWidth, newHeight));
+                        }
                     }
                 }
 
