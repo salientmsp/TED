@@ -58,6 +58,7 @@ namespace TED.Program
             var darkImagePath = GetArgument(args, new string[] { "-darkimage", "-di" }, Options.Default.DarkImagePath);
             var lightImagePath = GetArgument(args, new string[] { "-lightimage", "-li" }, Options.Default.LightImagePath);
             var alignment = GetArgument(args, new string[] { "-align", "-a" }, "left");
+            var backdropImage = args.Any(arg => arg == "-backdrop" || arg == "-bg");
             var lines = new List<string>(Options.Default.Lines);
 
             if (!bool.TryParse(GetArgument(args, new string[] { "-debug", "-d" }, Options.Default.Debug.ToString()), out bool debug))
@@ -145,7 +146,8 @@ namespace TED.Program
                 lines,
                 fixedWidth,
                 alignmentOption,
-                debug
+                debug,
+                backdropImage
                 );
         }
 

@@ -48,6 +48,7 @@ TED supports the following switches:
 - `-w` or `-width`: The width of the image when drawn, in pixels. By default this is **-1**. 
   - A value of -1 disables fixed width scaling and instead uses automatic image scaling to resize (respecting aspect ratio) the image to the size of the longest line of text.
 - `-a` or `-align`: How the text should be aligned. Default is **Left**. Accepted values are **Left**, **Center** or **Right**. Not case-sensitive.
+- `-bg` or `-backdrop`: Render the image *behind* the text as a backdrop/watermark instead of stacking it above the text. This is a switch and takes no value. By default (switch omitted) the image is drawn above the text. When enabled, the image and text share one layout block: the image is drawn first (bottom layer, centered) and the text is drawn last (top layer) so it stays readable over the logo. The `-w`, `-hp`, `-vp` and `-a` arguments apply to the merged block, so the logo and text move together as one unit.
 - `-line`: The text to be drawn. This switch can be repeated multiple times to draw multiple lines of text. Lines can contain system tokens and inline rich text formatting, both documented below. If no lines are provided, TED renders the following by default:
   - "USERNAME: @userName"
   - "MACHINE NAME: @machineName"

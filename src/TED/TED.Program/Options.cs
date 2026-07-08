@@ -22,6 +22,7 @@ namespace TED.Program
         internal StringAlignment TextAlignment;
         internal readonly bool Debug;
         internal readonly bool AdaptiveImageMode;
+        internal readonly bool BackdropImage;
 
         /// <summary>
         /// Gets default options
@@ -55,7 +56,7 @@ namespace TED.Program
             int lineSpacing, int fontSize, string fontName,
             string imagePath, string lightImagePath,
             string darkImagePath, List<string> lines, int fixedWidth, StringAlignment textAlignment,
-            bool debug)
+            bool debug, bool backdropImage = false)
         {
             PaddingHorizontal = paddingHorizontal;
             PaddingVertical = paddingVertical;
@@ -69,6 +70,7 @@ namespace TED.Program
             Debug = debug;
             FixedWidth = fixedWidth;
             TextAlignment = textAlignment;
+            BackdropImage = backdropImage;
             AdaptiveImageMode = !string.IsNullOrEmpty(LightImagePath) && !string.IsNullOrEmpty(DarkImagePath);
         }
 
