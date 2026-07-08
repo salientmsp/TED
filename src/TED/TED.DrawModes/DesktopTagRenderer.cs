@@ -49,32 +49,35 @@ namespace TED.DrawModes
 
                 if (options.BackdropImage && !string.IsNullOrEmpty(imagePath))
                 {
-                    // Backdrop mode (-backdrop): the image and text share a single layout cell so
-                    // the logo is rendered behind the text as a watermark instead of being stacked
-                    // above it. The cell is as wide as the resolved width (-w) and as tall as
-                    // whichever element is taller, and it is anchored to the bottom-right corner via
-                    // the padding args (-hp/-vp) so the logo and text move together as one block.
+                    // Backdrop mode (-backdrop): the logo is rendered behind the text as a watermark
+                    // instead of being stacked above it. The text block is the anchor - it is pinned
+                    // to the bottom-right corner via the padding args (-hp/-vp), and the logo is then
+                    // positioned so its geometric center lands exactly on the text block's center,
+                    // keeping the watermark perfectly concentric with the words at any size.
+                    var textBlockWidth = maxWidth;
                     var textBlockHeight = lineHeights.Sum() + (options.LineSpacing * Math.Max(options.Lines.Count - 1, 0));
+
+                    // Anchor the text block to the bottom-right corner.
+                    textX = rightEdge - textBlockWidth - options.PaddingHorizontal;
+                    textY = bottomEdge - textBlockHeight - options.PaddingVertical;
+
+                    // Geometric center of the text block.
+                    var textCenterX = textX + (textBlockWidth / 2f);
+                    var textCenterY = textY + (textBlockHeight / 2f);
 
                     using (var overlayImage = Image.FromFile(imagePath))
                     {
                         ImageUtilities.ScaleImageAndMaintainAspectRatio(overlayImage.Width, overlayImage.Height, maxWidth, int.MaxValue, out int newWidth, out int newHeight);
 
-                        var groupWidth = maxWidth;
-                        var groupHeight = Math.Max(newHeight, textBlockHeight);
-                        var groupLeft = rightEdge - groupWidth - options.PaddingHorizontal;
-                        var groupTop = bottomEdge - groupHeight - options.PaddingVertical;
-
-                        // Bottom layer: center the logo within the group so it backs the text.
-                        var imageX = groupLeft + (groupWidth - newWidth) / 2f;
-                        var imageY = groupTop + (groupHeight - newHeight) / 2f;
+                        // Bottom layer: lock the logo's center to the text block's center so it backs
+                        // the words symmetrically regardless of which element is taller.
+                        var imageX = textCenterX - (newWidth / 2f);
+                        var imageY = textCenterY - (newHeight / 2f);
 
                         graphics.DrawImage(overlayImage, new RectangleF(imageX, imageY, newWidth, newHeight));
-
-                        // Top layer: the text shares the group's origin and is drawn last (below).
-                        textX = groupLeft;
-                        textY = groupTop;
                     }
+
+                    // Top layer: the text is drawn last (below) over the centered watermark.
                 }
                 else
                 {
