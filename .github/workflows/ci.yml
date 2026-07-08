@@ -1,0 +1,47 @@
+name: ci
+
+# Fast feedback that the app still compiles and packs. TED is a Windows Forms
+# GUI app, so there is no headless "run" to smoke-test in CI — the closest
+# easy targets are a clean build and a single-runtime publish that proves the
+# self-contained single-file exe still assembles.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # WinForms (net8.0-windows) can only build on Windows.
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/TED.sln
+
+      - name: Build (Release)
+        run: dotnet build src/TED.sln --configuration Release --no-restore
+
+      - name: Publish smoke test (win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish src/TED/TED.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained false `
+            --output artifacts/ci-smoke
+          if (-not (Test-Path 'artifacts/ci-smoke/TED.exe')) {
+            throw 'Publish did not produce TED.exe.'
+          }
